@@ -2,12 +2,13 @@
 name = "metalor"
 version = "0.1.0"
 edition = "2021"
-description = "Generic parsing utilities and isolated runtime helpers for build-file execution"
+description = "Rust utilities for line-oriented DSL parsing and OCI-backed Linux runtime setup"
 authors = ["Victor Stewart"]
 license = "Apache-2.0"
-readme = "README.md"
+readme = "README.crates-io.md"
 documentation = "https://docs.rs/metalor"
 homepage = "https://docs.rs/metalor"
+repository = "https://github.com/victorstewart/metalor"
 keywords = ["container", "runtime", "parser", "oci"]
 categories = ["development-tools", "parser-implementations"]
 
