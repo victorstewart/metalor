@@ -10,6 +10,14 @@ pub use parser::{
     SignificantLine,
 };
 pub use runtime::{
-    build_unshare_reexec_command, helper_binary_path, prepare_oci_rootfs, prepare_runtime_emulator,
+    backend_caps, build_cell_request_path, read_build_cell_request, write_build_cell_request,
+    BackendCaps, BuildCellResult, BuildCellSpec, CacheSpec, CellPath, CleanupPolicy, CommandSpec,
+    ExportSpec, HostPath, ImportSpec, NetworkPolicy, ResourceLimits, WorkspaceSeed,
+};
+
+#[cfg(target_os = "linux")]
+pub use runtime::{
+    build_cell_reexec_command, build_unshare_reexec_command, finalize_build_cell,
+    helper_binary_path, prepare_oci_rootfs, prepare_runtime_emulator, run_build_cell,
     run_isolated_container_command, BindMount, ContainerRunCommand, RUN_HELPER_DIR,
 };

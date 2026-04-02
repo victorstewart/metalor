@@ -1,8 +1,10 @@
 # metalor
 
-Rust utilities for line-oriented DSL parsing and OCI-backed Linux runtime setup.
+Rust utilities for line-oriented DSL parsing, portable build-cell orchestration, and OCI-backed Linux runtime setup.
 
 `metalor` is a small crate for trusted callers that want reusable low-level pieces instead of a full package manager or container runtime.
+
+It supports Linux, macOS, and Windows natively, with platform-appropriate backends instead of forcing every target through Linux runtime semantics.
 
 It provides:
 
@@ -10,6 +12,7 @@ It provides:
 - identifier validation
 - JSON exec-array parsing
 - `${NAME}` interpolation
+- a portable build-cell spec plus request/response helpers
 - OCI copy/unpack helpers
 - optional OCI layout caching
 - requested-architecture image selection
@@ -20,7 +23,7 @@ It provides:
 
 ```toml
 [dependencies]
-metalor = "0.1"
+metalor = "0.2"
 ```
 
 ## Parser example
@@ -51,7 +54,27 @@ assert_eq!(expanded, "echo world");
 # }
 ```
 
-## Runtime flow
+## Portable flow
+
+The portable layer is built around explicit staged I/O:
+
+1. describe a job with `BuildCellSpec`
+2. write or read request files with `write_build_cell_request(...)` / `read_build_cell_request(...)`
+3. on Linux, re-exec into the portable worker path with `build_cell_reexec_command(...)`
+4. finalize staged caches and exports with `finalize_build_cell(...)`
+
+`metalor` also ships consumer integration support for:
+
+- macOS helper/XPC targets, including template entitlements and `Info.plist`
+- Windows worker brokers and staged worker helpers
+
+Platform caveats:
+
+- Linux is the only platform with the advanced OCI/rootfs + private-namespace runtime path.
+- macOS support is native but requires downstream signed helper or XPC targets; `metalor` provides reusable support code and templates, not shipped signed binaries.
+- Windows support is native but uses a broker/worker model rather than Linux mount semantics, so portable staged imports/exports are the intended cross-platform contract.
+
+## Linux runtime flow
 
 The runtime API is intentionally split:
 
@@ -81,7 +104,7 @@ If you do not override them yourself, `metalor` auto-binds a minimal host surfac
 
 ## Requirements
 
-Linux only.
+The advanced OCI/runtime helpers are Linux-only.
 
 Runtime helpers currently rely on:
 
@@ -98,8 +121,8 @@ Supported architecture names:
 - `aarch64` / `arm64`
 - `riscv64`
 
-The runtime path assumes sufficient privilege to create mount namespaces, mount filesystems, and `chroot`.
+The Linux runtime path assumes sufficient privilege to create mount namespaces, mount filesystems, and `chroot`.
 
 ## Non-goals
 
-`metalor` is not a package manager, dependency resolver, build planner, full container runtime, or sandbox for hostile code.
+`metalor` is not a package manager, dependency resolver, build planner, full container runtime, or sandbox for hostile code. Downstream consumers own macOS helper targets, entitlements, signing, notarization, and shipping.

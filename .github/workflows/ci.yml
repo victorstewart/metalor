@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+  test:
+    name: Test (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux
+            os: ubuntu-latest
+            setup: |
+              sudo apt-get update
+              sudo apt-get install -y skopeo umoci qemu-user-static
+            command: |
+              sudo --preserve-env=HOME,PATH,CARGO_HOME,RUSTUP_HOME "$(command -v cargo)" test -j"$(nproc)"
+          - label: macos
+            os: macos-latest
+            setup: ""
+            command: cargo test
+          - label: windows
+            os: windows-latest
+            setup: ""
+            command: cargo test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Linux runtime dependencies
+        if: matrix.setup != ''
+        shell: bash
+        run: ${{ matrix.setup }}
+
+      - name: Run test suite
+        shell: bash
+        run: ${{ matrix.command }}
