@@ -1,29 +1,23 @@
 # metalor
 
-Rust utilities for line-oriented DSL parsing, portable build-cell orchestration, and OCI-backed Linux runtime setup.
+Rust utilities for line-oriented DSL parsing, portable build-cell orchestration, local Linux-provider integration, and OCI-backed Linux runtime setup.
 
-`metalor` is a small crate for trusted callers that want reusable low-level pieces instead of a full package manager or container runtime.
-
-It supports Linux, macOS, and Windows natively, with platform-appropriate backends instead of forcing every target through Linux runtime semantics.
+`metalor` is a small crate for trusted tools that want reusable runtime substrate without adopting a full package manager, build planner, or container runtime.
 
 It provides:
 
-- significant-line scanning with line numbers
-- identifier validation
-- JSON exec-array parsing
-- `${NAME}` interpolation
-- a portable build-cell spec plus request/response helpers
-- OCI copy/unpack helpers
-- optional OCI layout caching
-- requested-architecture image selection
-- QEMU helper staging for foreign-arch execution
-- guarded command execution inside a private mount namespace + `chroot`
+- parser helpers for line-oriented config and build files
+- a portable `BuildCellSpec` request/response layer with explicit staged imports, caches, and exports
+- generic local Linux-provider helpers under `runtime::linux_provider`
+- Linux advanced OCI/rootfs + private-namespace execution on Linux
+- native macOS helper/XPC worker support plus `runtime::macos::AppleLinuxProvider`
+- native Windows broker/worker support plus `runtime::windows::WslProvider`
 
 ## Add to your project
 
 ```toml
 [dependencies]
-metalor = "0.2"
+metalor = "0.3"
 ```
 
 ## Parser example
@@ -54,29 +48,30 @@ assert_eq!(expanded, "echo world");
 # }
 ```
 
-## Portable flow
+## Platform model
 
-The portable layer is built around explicit staged I/O:
+- `BuildCellSpec` is the cross-platform staged-I/O contract.
+- Linux has the full OCI/rootfs + `unshare` + `chroot` runtime path.
+- macOS has native helper/worker support plus a caller-owned Apple Linux-provider hook.
+- Windows has native broker/worker support plus a WSL2-backed Linux-provider hook.
+- Linux namespace behavior is not emulated on macOS or Windows. Callers that need Linux OCI/rootfs behavior there should route jobs through a local Linux provider.
 
-1. describe a job with `BuildCellSpec`
-2. write or read request files with `write_build_cell_request(...)` / `read_build_cell_request(...)`
-3. on Linux, re-exec into the portable worker path with `build_cell_reexec_command(...)`
-4. finalize staged caches and exports with `finalize_build_cell(...)`
+## Linux-provider surface
 
-`metalor` also ships consumer integration support for:
+The new local Linux-provider layer is intentionally small and reusable:
 
-- macOS helper/XPC targets, including template entitlements and `Info.plist`
-- Windows worker brokers and staged worker helpers
+- `runtime::linux_provider::ProviderSession`
+- `runtime::linux_provider::ProviderRuntimeLayout`
+- `runtime::linux_provider::ProviderRuntimeMetadata`
+- `runtime::windows::WslProvider`
+- `runtime::windows::resolve_wsl_distro`
+- `runtime::macos::AppleLinuxProvider`
 
-Platform caveats:
-
-- Linux is the only platform with the advanced OCI/rootfs + private-namespace runtime path.
-- macOS support is native but requires downstream signed helper or XPC targets; `metalor` provides reusable support code and templates, not shipped signed binaries.
-- Windows support is native but uses a broker/worker model rather than Linux mount semantics, so portable staged imports/exports are the intended cross-platform contract.
+This layer is for downstream tools that want to keep one portable build-cell model while delegating Linux-rootfs work to a local Linux environment.
 
 ## Linux runtime flow
 
-The runtime API is intentionally split:
+The advanced Linux runtime API is intentionally split:
 
 1. `prepare_oci_rootfs(...)` copies or unpacks a rootfs under a declared runtime prefix.
 2. `prepare_runtime_emulator(...)` stages `qemu-*-static` under `/.metalor-run` when host and guest architectures differ.
@@ -98,7 +93,7 @@ If you do not override them yourself, `metalor` auto-binds a minimal host surfac
 `metalor` assumes a trusted caller, but it hardens the host-side runtime path by:
 
 - keeping runtime roots and OCI package roots under a declared runtime prefix
-- rejecting host-side symlink traversal in reserved runtime paths before host-side mkdir/write/mount steps
+- rejecting host-side symlink traversal in reserved runtime paths before host-side mkdir, write, mount, or sync steps
 - validating bind sources, mount destinations, `cwd`, executable paths, emulator paths, and environment entries before re-exec
 - refusing to enter the inner runner from the host mount namespace
 
@@ -121,8 +116,8 @@ Supported architecture names:
 - `aarch64` / `arm64`
 - `riscv64`
 
-The Linux runtime path assumes sufficient privilege to create mount namespaces, mount filesystems, and `chroot`.
+The Linux advanced runtime path assumes sufficient privilege to create mount namespaces, mount filesystems, and `chroot`.
 
 ## Non-goals
 
-`metalor` is not a package manager, dependency resolver, build planner, full container runtime, or sandbox for hostile code. Downstream consumers own macOS helper targets, entitlements, signing, notarization, and shipping.
+`metalor` is not a package manager, dependency resolver, build planner, full container runtime, or sandbox for hostile code. It also does not ship signed macOS helpers, VM images, or downstream app packaging.

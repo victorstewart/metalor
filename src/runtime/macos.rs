@@ -3,6 +3,7 @@
 
 mod assets;
 mod client;
+mod linux_provider;
 mod validation;
 mod worker;
 
@@ -13,6 +14,7 @@ pub use assets::{
     OFFLINE_HELPER_ENTITLEMENTS_TEMPLATE,
 };
 pub use client::{helper_environment, prepare_helper_request, HelperTarget, HELPER_REQUEST_ENV};
+pub use linux_provider::{AppleLinuxProvider, DEFAULT_APPLE_LINUX_BUNDLE};
 pub use validation::{validate_bundle_identifier, validate_helper_target, validate_service_name};
 pub use worker::{
     build_worker_command, copy_worker_exports, load_request, load_request_from_env, prepare_job,

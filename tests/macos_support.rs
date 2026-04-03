@@ -3,11 +3,12 @@
 // Copyright 2026 Victor Stewart
 // SPDX-License-Identifier: Apache-2.0
 
+use metalor::runtime::linux_provider::ProviderShell;
 use metalor::runtime::macos::{
     build_worker_command, copy_worker_exports, helper_environment, prepare_helper_request,
-    prepare_job, sync_worker_caches, validate_helper_target, HelperTarget,
-    HELPER_INFO_PLIST_TEMPLATE, HELPER_REQUEST_ENV, NETWORKED_HELPER_ENTITLEMENTS_TEMPLATE,
-    OFFLINE_HELPER_ENTITLEMENTS_TEMPLATE,
+    prepare_job, sync_worker_caches, validate_helper_target, AppleLinuxProvider, HelperTarget,
+    DEFAULT_APPLE_LINUX_BUNDLE, HELPER_INFO_PLIST_TEMPLATE, HELPER_REQUEST_ENV,
+    NETWORKED_HELPER_ENTITLEMENTS_TEMPLATE, OFFLINE_HELPER_ENTITLEMENTS_TEMPLATE,
 };
 use metalor::{
     BuildCellSpec, CacheSpec, CleanupPolicy, CommandSpec, ExportSpec, HostPath, ImportSpec,
@@ -58,6 +59,61 @@ fn helper_target_and_templates_are_wired_for_downstream_apps() {
     assert!(HELPER_INFO_PLIST_TEMPLATE.contains("CFBundleIdentifier"));
     assert!(NETWORKED_HELPER_ENTITLEMENTS_TEMPLATE.contains("network.client"));
     assert!(OFFLINE_HELPER_ENTITLEMENTS_TEMPLATE.contains("app-sandbox"));
+}
+
+#[test]
+fn apple_linux_provider_builds_helper_commands_and_validates_inputs() {
+    let helper_root = unique_temp_dir("helper");
+    let helper = helper_root.join("metalor-avf-helper");
+    let helper_log = helper_root.join("helper.log");
+    fs::write(
+        &helper,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\n",
+            helper_log.display()
+        ),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&helper, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    let provider = AppleLinuxProvider::new(&helper, "metalor").unwrap();
+    let command = provider.spawn_shell("printf ready").unwrap();
+    let args = command
+        .get_args()
+        .map(|value| value.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        command.get_program().to_string_lossy(),
+        helper.display().to_string()
+    );
+    assert_eq!(
+        args,
+        vec!["shell", "--vm-name", "metalor", "--script", "printf ready"]
+    );
+    assert_eq!(DEFAULT_APPLE_LINUX_BUNDLE, "ubuntu-24.04");
+
+    let mut log = String::new();
+    provider
+        .ensure_available(DEFAULT_APPLE_LINUX_BUNDLE, &mut log)
+        .unwrap();
+    let recorded = fs::read_to_string(&helper_log).unwrap();
+    assert!(recorded.contains("ensure"));
+    assert!(recorded.contains("--vm-name"));
+
+    let helper_error = AppleLinuxProvider::new("relative-helper", "metalor").unwrap_err();
+    assert!(
+        helper_error.to_string().contains("absolute path"),
+        "{helper_error:#}"
+    );
+    let vm_error = AppleLinuxProvider::new(&helper, "   ").unwrap_err();
+    assert!(
+        vm_error.to_string().contains("must not be empty"),
+        "{vm_error:#}"
+    );
 }
 
 #[test]

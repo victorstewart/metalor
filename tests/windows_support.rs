@@ -3,10 +3,12 @@
 // Copyright 2026 Victor Stewart
 // SPDX-License-Identifier: Apache-2.0
 
+use metalor::runtime::linux_provider::ProviderShell;
 use metalor::runtime::windows::{
     appcontainer_profile_name, build_worker_command, build_worker_process_command,
-    copy_worker_exports, prepare_job, prepare_worker_request, sync_worker_caches,
-    validate_application_id, validate_worker_target, WorkerTarget, WORKER_REQUEST_ENV,
+    copy_worker_exports, parse_wsl_list_output, prepare_job, prepare_worker_request,
+    resolve_wsl_distro, sync_worker_caches, validate_application_id, validate_worker_target,
+    WorkerTarget, WslProvider, DEFAULT_WSL_DISTRO, WORKER_REQUEST_ENV,
 };
 use metalor::{
     BuildCellSpec, CacheSpec, CleanupPolicy, CommandSpec, ExportSpec, HostPath, ImportSpec,
@@ -58,6 +60,53 @@ fn windows_worker_target_and_profile_name_are_derived() {
             .and_then(|(_, value)| value.map(|value| value.to_string_lossy().into_owned())),
         Some(request_path.display().to_string())
     );
+}
+
+#[test]
+fn wsl_provider_parses_utf16_output_and_builds_shell_commands() {
+    let utf16le = [
+        0xff, 0xfe, b'U', 0, b'b', 0, b'u', 0, b'n', 0, b't', 0, b'u', 0, b'-', 0, b'2', 0, b'4',
+        0, b'.', 0, b'0', 0, b'4', 0, b'\r', 0, b'\n', 0, b'D', 0, b'e', 0, b'b', 0, b'i', 0, b'a',
+        0, b'n', 0, b'\r', 0, b'\n', 0,
+    ];
+    assert_eq!(
+        parse_wsl_list_output(&utf16le).unwrap(),
+        vec!["Ubuntu-24.04".to_string(), "Debian".to_string()]
+    );
+
+    let provider = WslProvider::new(DEFAULT_WSL_DISTRO).unwrap();
+    let command = provider.spawn_shell("printf ready").unwrap();
+    let args = command
+        .get_args()
+        .map(|value| value.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(command.get_program().to_string_lossy(), "wsl.exe");
+    assert_eq!(
+        args,
+        vec![
+            "--distribution",
+            DEFAULT_WSL_DISTRO,
+            "--user",
+            "root",
+            "--",
+            "bash",
+            "-lc",
+            "printf ready",
+        ]
+    );
+}
+
+#[test]
+fn wsl_provider_rejects_empty_distro_names() {
+    let error = WslProvider::new("   ").unwrap_err();
+    assert!(error.to_string().contains("must not be empty"), "{error:#}");
+}
+
+#[test]
+fn resolve_wsl_distro_preserves_explicit_nonempty_values() {
+    let resolution = resolve_wsl_distro(Some("Debian")).unwrap();
+    assert_eq!(resolution.distro, "Debian");
+    assert!(!resolution.auto_install);
 }
 
 #[test]

@@ -1,8 +1,8 @@
 [package]
 name = "metalor"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
-description = "Rust utilities for line-oriented DSL parsing, portable build cells, and native multi-OS runtime integration"
+description = "Rust utilities for line-oriented DSL parsing, portable build cells, local Linux-provider integration, and OCI-backed Linux runtime setup"
 authors = ["Victor Stewart"]
 license = "Apache-2.0"
 readme = "README.crates-io.md"

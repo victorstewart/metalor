@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 mod caps;
+pub mod linux_provider;
 mod portable;
 mod protocol;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
