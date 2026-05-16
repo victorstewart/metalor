@@ -22,6 +22,7 @@ use tar::Archive;
 pub const RUN_HELPER_DIR: &str = "/.metalor-run";
 const ISOLATION_ENV: &str = "METALOR_PRIVATE_NS";
 const RUNTIME_PREFIX_ENV: &str = "METALOR_RUNTIME_ROOT_PREFIX";
+const PARENT_MOUNT_NS_ENV: &str = "METALOR_PARENT_MOUNT_NS";
 const ROOT_SENTINEL: &str = ".metalor-root";
 const BUILD_CELL_WORKSPACE_DIR: &str = "workspace";
 const BUILD_CELL_IMPORTS_DIR: &str = "imports";
@@ -547,6 +548,8 @@ fn build_isolation_reexec_command(
     disable_network: bool,
     backend: LinuxNamespaceBackend,
 ) -> Result<Command> {
+    let parent_mount_ns = current_mount_namespace()
+        .context("failed to read parent mount namespace for container isolation check")?;
     let mut process = Command::new("unshare");
     append_unshare_namespace_args(&mut process, backend, disable_network);
     process
@@ -556,7 +559,8 @@ fn build_isolation_reexec_command(
         .args(trailing_args);
     process
         .env(ISOLATION_ENV, "1")
-        .env(RUNTIME_PREFIX_ENV, canonical_prefix.as_os_str());
+        .env(RUNTIME_PREFIX_ENV, canonical_prefix.as_os_str())
+        .env(PARENT_MOUNT_NS_ENV, parent_mount_ns.as_os_str());
     Ok(process)
 }
 
@@ -979,14 +983,25 @@ fn ensure_runtime_root_sentinel(root: &Path, canonical_prefix: &Path) -> Result<
 }
 
 fn ensure_private_mount_namespace() -> Result<()> {
-    let self_ns = fs::read_link("/proc/self/ns/mnt")
+    let self_ns = current_mount_namespace()
         .context("failed to read /proc/self/ns/mnt for container isolation check")?;
+    if let Some(parent_ns) = std::env::var_os(PARENT_MOUNT_NS_ENV) {
+        if self_ns.as_os_str() == parent_ns {
+            bail!("refusing to run container command in the host mount namespace");
+        }
+        return Ok(());
+    }
+
     let init_ns = fs::read_link("/proc/1/ns/mnt")
         .context("failed to read /proc/1/ns/mnt for container isolation check")?;
     if self_ns == init_ns {
         bail!("refusing to run container command in the host mount namespace");
     }
     Ok(())
+}
+
+fn current_mount_namespace() -> Result<PathBuf> {
+    fs::read_link("/proc/self/ns/mnt").context("failed to read /proc/self/ns/mnt")
 }
 
 fn run_container_process(command: &ContainerRunCommand, limits: ResourceLimits) -> Result<()> {

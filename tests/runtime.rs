@@ -226,6 +226,12 @@ fn builds_unshare_reexec_command_for_the_hidden_runner() {
         "METALOR_RUNTIME_ROOT_PREFIX".to_string(),
         Some(runtime_prefix.canonicalize().unwrap().display().to_string())
     )));
+    assert!(envs.iter().any(|(key, value)| {
+        key == "METALOR_PARENT_MOUNT_NS"
+            && value
+                .as_deref()
+                .is_some_and(|mount_ns| mount_ns.starts_with("mnt:["))
+    }));
 }
 
 #[test]
@@ -538,6 +544,10 @@ fn rejects_running_inside_the_host_mount_namespace() {
         "METALOR_RUNTIME_ROOT_PREFIX",
         runtime_prefix.canonicalize().unwrap(),
     );
+    std::env::set_var(
+        "METALOR_PARENT_MOUNT_NS",
+        fs::read_link("/proc/self/ns/mnt").unwrap(),
+    );
     let request = ContainerRunCommand {
         root: runtime_root,
         cwd: "/".to_string(),
@@ -555,6 +565,7 @@ fn rejects_running_inside_the_host_mount_namespace() {
     );
     std::env::remove_var("METALOR_PRIVATE_NS");
     std::env::remove_var("METALOR_RUNTIME_ROOT_PREFIX");
+    std::env::remove_var("METALOR_PARENT_MOUNT_NS");
 }
 
 #[test]
