@@ -13,9 +13,11 @@ use std::path::PathBuf;
 
 #[cfg(target_os = "linux")]
 use metalor::{
-    build_cell_reexec_command, build_unshare_reexec_command, finalize_build_cell,
-    prepare_oci_rootfs, prepare_runtime_emulator, run_build_cell, run_isolated_container_command,
-    BindMount, BuildCellResult, ContainerRunCommand,
+    build_cell_reexec_command, build_cell_reexec_command_with_backend,
+    build_unshare_reexec_command, build_unshare_reexec_command_with_backend, finalize_build_cell,
+    prepare_oci_rootfs, prepare_runtime_emulator, probe_rootless_userns, run_build_cell,
+    run_isolated_container_command, BindMount, BuildCellResult, ContainerRunCommand,
+    LinuxNamespaceBackend, LinuxNamespaceProbe,
 };
 #[cfg(target_os = "linux")]
 use std::path::Path;
@@ -25,6 +27,18 @@ use std::process::Command;
 #[cfg(target_os = "linux")]
 fn assert_build_unshare_reexec_command_signature(
     _function: fn(&Path, &str, &Path, &ContainerRunCommand) -> Result<Command>,
+) {
+}
+
+#[cfg(target_os = "linux")]
+fn assert_build_unshare_reexec_command_with_backend_signature(
+    _function: fn(
+        &Path,
+        &str,
+        &Path,
+        &ContainerRunCommand,
+        LinuxNamespaceBackend,
+    ) -> Result<Command>,
 ) {
 }
 
@@ -53,6 +67,12 @@ fn assert_build_cell_reexec_command_signature(
 }
 
 #[cfg(target_os = "linux")]
+fn assert_build_cell_reexec_command_with_backend_signature(
+    _function: fn(&Path, &str, &Path, &BuildCellSpec, LinuxNamespaceBackend) -> Result<Command>,
+) {
+}
+
+#[cfg(target_os = "linux")]
 fn assert_run_build_cell_signature(_function: fn(&BuildCellSpec) -> Result<()>) {}
 
 #[cfg(target_os = "linux")]
@@ -60,6 +80,9 @@ fn assert_finalize_build_cell_signature(
     _function: fn(&BuildCellSpec, bool) -> Result<BuildCellResult>,
 ) {
 }
+
+#[cfg(target_os = "linux")]
+fn assert_probe_rootless_userns_signature(_function: fn(bool) -> LinuxNamespaceProbe) {}
 
 #[test]
 fn crates_io_readme_parser_example_works_as_claimed() -> Result<()> {
@@ -140,6 +163,7 @@ fn github_readme_public_api_at_a_glance_is_exported() {
         executable: "/bin/true".to_string(),
         argv: Vec::new(),
     };
+    let _namespace_backend = LinuxNamespaceBackend::RootlessUser;
 
     assert!(valid_identifier("TARGET"));
     assert_eq!(
@@ -151,12 +175,17 @@ fn github_readme_public_api_at_a_glance_is_exported() {
     );
 
     assert_build_unshare_reexec_command_signature(build_unshare_reexec_command);
+    assert_build_unshare_reexec_command_with_backend_signature(
+        build_unshare_reexec_command_with_backend,
+    );
     assert_build_cell_reexec_command_signature(build_cell_reexec_command);
+    assert_build_cell_reexec_command_with_backend_signature(build_cell_reexec_command_with_backend);
     assert_prepare_runtime_emulator_signature(prepare_runtime_emulator);
     assert_prepare_oci_rootfs_signature(prepare_oci_rootfs);
     assert_run_build_cell_signature(run_build_cell);
     assert_finalize_build_cell_signature(finalize_build_cell);
     assert_run_isolated_container_command_signature(run_isolated_container_command);
+    assert_probe_rootless_userns_signature(probe_rootless_userns);
 
     let _ = request;
 }

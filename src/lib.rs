@@ -17,7 +17,9 @@ pub use runtime::{
 
 #[cfg(target_os = "linux")]
 pub use runtime::{
-    build_cell_reexec_command, build_unshare_reexec_command, finalize_build_cell,
-    helper_binary_path, prepare_oci_rootfs, prepare_runtime_emulator, run_build_cell,
-    run_isolated_container_command, BindMount, ContainerRunCommand, RUN_HELPER_DIR,
+    build_cell_reexec_command, build_cell_reexec_command_with_backend,
+    build_unshare_reexec_command, build_unshare_reexec_command_with_backend, finalize_build_cell,
+    helper_binary_path, prepare_oci_rootfs, prepare_runtime_emulator, probe_rootless_userns,
+    run_build_cell, run_isolated_container_command, BindMount, ContainerRunCommand,
+    LinuxNamespaceBackend, LinuxNamespaceProbe, RUN_HELPER_DIR,
 };

@@ -8,13 +8,15 @@ use super::{
 use anyhow::{bail, Context, Result};
 use flate2::read::GzDecoder;
 use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 use std::ffi::{CString, OsStr};
 use std::fs;
 use std::os::unix::fs::{symlink, PermissionsExt};
 use std::os::unix::process::ExitStatusExt;
 use std::path::Component;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
+use std::sync::{Mutex, OnceLock};
 use tar::Archive;
 
 pub const RUN_HELPER_DIR: &str = "/.metalor-run";
@@ -43,6 +45,21 @@ pub struct ContainerRunCommand {
     pub argv: Vec<String>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LinuxNamespaceBackend {
+    RootlessUser,
+    Privileged,
+}
+
+#[derive(Clone, Debug)]
+pub struct LinuxNamespaceProbe {
+    pub backend: LinuxNamespaceBackend,
+    pub disable_network: bool,
+    pub ok: bool,
+    pub status: Option<ExitStatus>,
+    pub stderr: String,
+}
+
 #[derive(Clone, Debug)]
 struct PortableMount {
     source: PathBuf,
@@ -69,6 +86,22 @@ pub fn build_cell_reexec_command(
     runtime_root_prefix: &Path,
     spec: &BuildCellSpec,
 ) -> Result<Command> {
+    build_cell_reexec_command_with_backend(
+        current_exe,
+        subcommand,
+        runtime_root_prefix,
+        spec,
+        LinuxNamespaceBackend::Privileged,
+    )
+}
+
+pub fn build_cell_reexec_command_with_backend(
+    current_exe: &Path,
+    subcommand: &str,
+    runtime_root_prefix: &Path,
+    spec: &BuildCellSpec,
+    backend: LinuxNamespaceBackend,
+) -> Result<Command> {
     validate_build_cell_spec(spec)?;
     let canonical_prefix = canonicalize_runtime_root_prefix(runtime_root_prefix)?;
     let canonical_root = prepare_runtime_root(spec.root.as_path(), &canonical_prefix)?;
@@ -91,6 +124,7 @@ pub fn build_cell_reexec_command(
             request_path.display().to_string(),
         ],
         matches!(spec.network, NetworkPolicy::Disabled),
+        backend,
     )
 }
 
@@ -134,6 +168,22 @@ pub fn build_unshare_reexec_command(
     runtime_root_prefix: &Path,
     command: &ContainerRunCommand,
 ) -> Result<Command> {
+    build_unshare_reexec_command_with_backend(
+        current_exe,
+        subcommand,
+        runtime_root_prefix,
+        command,
+        LinuxNamespaceBackend::Privileged,
+    )
+}
+
+pub fn build_unshare_reexec_command_with_backend(
+    current_exe: &Path,
+    subcommand: &str,
+    runtime_root_prefix: &Path,
+    command: &ContainerRunCommand,
+    backend: LinuxNamespaceBackend,
+) -> Result<Command> {
     validate_container_request(command)?;
     let canonical_prefix = canonicalize_runtime_root_prefix(runtime_root_prefix)?;
     let canonical_root = prepare_runtime_root(&command.root, &canonical_prefix)?;
@@ -173,7 +223,54 @@ pub fn build_unshare_reexec_command(
         &canonical_prefix,
         &trailing_args,
         false,
+        backend,
     )
+}
+
+pub fn probe_rootless_userns(disable_network: bool) -> LinuxNamespaceProbe {
+    static CACHE: OnceLock<Mutex<BTreeMap<bool, LinuxNamespaceProbe>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(BTreeMap::new()));
+    if let Some(probe) = cache
+        .lock()
+        .expect("rootless namespace probe cache poisoned")
+        .get(&disable_network)
+        .cloned()
+    {
+        return probe;
+    }
+
+    let probe = run_rootless_userns_probe(disable_network);
+    cache
+        .lock()
+        .expect("rootless namespace probe cache poisoned")
+        .insert(disable_network, probe.clone());
+    probe
+}
+
+fn run_rootless_userns_probe(disable_network: bool) -> LinuxNamespaceProbe {
+    let mut command = Command::new("unshare");
+    append_unshare_namespace_args(
+        &mut command,
+        LinuxNamespaceBackend::RootlessUser,
+        disable_network,
+    );
+    command.args(["--", "true"]);
+    match command.output() {
+        Ok(output) => LinuxNamespaceProbe {
+            backend: LinuxNamespaceBackend::RootlessUser,
+            disable_network,
+            ok: output.status.success(),
+            status: Some(output.status),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        },
+        Err(error) => LinuxNamespaceProbe {
+            backend: LinuxNamespaceBackend::RootlessUser,
+            disable_network,
+            ok: false,
+            status: None,
+            stderr: error.to_string(),
+        },
+    }
 }
 
 pub fn run_isolated_container_command(command: &ContainerRunCommand) -> Result<()> {
@@ -448,12 +545,10 @@ fn build_isolation_reexec_command(
     canonical_prefix: &Path,
     trailing_args: &[String],
     disable_network: bool,
+    backend: LinuxNamespaceBackend,
 ) -> Result<Command> {
     let mut process = Command::new("unshare");
-    process.args(["--fork", "--pid", "--mount", "--uts", "--ipc"]);
-    if disable_network {
-        process.arg("--net");
-    }
+    append_unshare_namespace_args(&mut process, backend, disable_network);
     process
         .arg("--")
         .arg(current_exe)
@@ -463,6 +558,32 @@ fn build_isolation_reexec_command(
         .env(ISOLATION_ENV, "1")
         .env(RUNTIME_PREFIX_ENV, canonical_prefix.as_os_str());
     Ok(process)
+}
+
+fn append_unshare_namespace_args(
+    process: &mut Command,
+    backend: LinuxNamespaceBackend,
+    disable_network: bool,
+) {
+    match backend {
+        LinuxNamespaceBackend::RootlessUser => {
+            process.args([
+                "--fork",
+                "--user",
+                "--map-root-user",
+                "--pid",
+                "--mount",
+                "--uts",
+                "--ipc",
+            ]);
+        }
+        LinuxNamespaceBackend::Privileged => {
+            process.args(["--fork", "--pid", "--mount", "--uts", "--ipc"]);
+        }
+    }
+    if disable_network {
+        process.arg("--net");
+    }
 }
 
 #[derive(Clone, Debug)]

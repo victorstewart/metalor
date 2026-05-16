@@ -75,14 +75,18 @@ Local Linux-provider layer:
 Linux advanced runtime:
 
 - `build_cell_reexec_command`
+- `build_cell_reexec_command_with_backend`
 - `run_build_cell`
 - `finalize_build_cell`
 - `prepare_oci_rootfs`
 - `prepare_runtime_emulator`
 - `build_unshare_reexec_command`
+- `build_unshare_reexec_command_with_backend`
+- `probe_rootless_userns`
 - `run_isolated_container_command`
 - `ContainerRunCommand`
 - `BindMount`
+- `LinuxNamespaceBackend`
 
 macOS integration:
 
@@ -154,7 +158,7 @@ Supported architecture names:
 - `aarch64` / `arm64`
 - `riscv64`
 
-The Linux advanced runtime path assumes the caller already has the privilege required to create mount namespaces, perform mounts, and `chroot`.
+The Linux advanced runtime path can be launched through either a privileged namespace backend or a rootless user-namespace backend. Callers that need ordinary-user execution should probe `probe_rootless_userns(...)` and pass `LinuxNamespaceBackend::RootlessUser` to the backend-aware reexec builders when the probe succeeds. The privileged compatibility wrappers still assume the caller already has the privilege required to create mount namespaces, perform mounts, and `chroot`.
 
 For non-Linux Linux providers:
 

@@ -4,9 +4,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use metalor::{
-    build_cell_reexec_command, build_cell_request_path, finalize_build_cell, prepare_oci_rootfs,
-    read_build_cell_request, run_build_cell, BuildCellSpec, CacheSpec, CleanupPolicy, CommandSpec,
-    ExportSpec, HostPath, ImportSpec, NetworkPolicy, WorkspaceSeed,
+    build_cell_reexec_command, build_cell_reexec_command_with_backend, build_cell_request_path,
+    finalize_build_cell, prepare_oci_rootfs, read_build_cell_request, run_build_cell,
+    BuildCellSpec, CacheSpec, CleanupPolicy, CommandSpec, ExportSpec, HostPath, ImportSpec,
+    LinuxNamespaceBackend, NetworkPolicy, WorkspaceSeed,
 };
 use std::ffi::OsStr;
 use std::fs;
@@ -120,6 +121,43 @@ fn build_cell_reexec_command_adds_private_network_namespace_when_disabled() {
         .collect();
 
     assert!(args.contains(&"--net".to_string()));
+}
+
+#[test]
+fn build_cell_reexec_command_can_use_rootless_user_namespace() {
+    let runtime_prefix = unique_temp_dir("reexec-rootless-network");
+    let root = runtime_prefix.join("root");
+    let scratch = runtime_prefix.join("scratch");
+    let mut spec = portable_spec(&root, &scratch);
+    spec.network = NetworkPolicy::Disabled;
+
+    let command = build_cell_reexec_command_with_backend(
+        Path::new("/usr/bin/tool"),
+        "portable-run",
+        &runtime_prefix,
+        &spec,
+        LinuxNamespaceBackend::RootlessUser,
+    )
+    .unwrap();
+    let args: Vec<_> = command
+        .get_args()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+
+    assert_eq!(
+        &args[..9],
+        [
+            "--fork",
+            "--user",
+            "--map-root-user",
+            "--pid",
+            "--mount",
+            "--uts",
+            "--ipc",
+            "--net",
+            "--"
+        ]
+    );
 }
 
 #[test]

@@ -4,8 +4,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use metalor::runtime::{
-    build_unshare_reexec_command, helper_binary_path, prepare_oci_rootfs, prepare_runtime_emulator,
-    run_isolated_container_command, BindMount, ContainerRunCommand, RUN_HELPER_DIR,
+    build_unshare_reexec_command, build_unshare_reexec_command_with_backend, helper_binary_path,
+    prepare_oci_rootfs, prepare_runtime_emulator, run_isolated_container_command, BindMount,
+    ContainerRunCommand, LinuxNamespaceBackend, RUN_HELPER_DIR,
 };
 use std::ffi::OsStr;
 use std::fs;
@@ -225,6 +226,47 @@ fn builds_unshare_reexec_command_for_the_hidden_runner() {
         "METALOR_RUNTIME_ROOT_PREFIX".to_string(),
         Some(runtime_prefix.canonicalize().unwrap().display().to_string())
     )));
+}
+
+#[test]
+fn builds_rootless_userns_reexec_command_for_the_hidden_runner() {
+    let runtime_prefix = unique_temp_dir("rootless-prefix");
+    let request = ContainerRunCommand {
+        root: runtime_prefix.join("root"),
+        cwd: "/".to_string(),
+        mounts: Vec::new(),
+        env: Vec::new(),
+        emulator: None,
+        executable: "/bin/true".to_string(),
+        argv: Vec::new(),
+    };
+
+    let command = build_unshare_reexec_command_with_backend(
+        Path::new("/usr/bin/tool"),
+        "internal-run",
+        &runtime_prefix,
+        &request,
+        LinuxNamespaceBackend::RootlessUser,
+    )
+    .unwrap();
+    let args: Vec<_> = command
+        .get_args()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+
+    assert_eq!(
+        &args[..8],
+        [
+            "--fork",
+            "--user",
+            "--map-root-user",
+            "--pid",
+            "--mount",
+            "--uts",
+            "--ipc",
+            "--"
+        ]
+    );
 }
 
 #[test]

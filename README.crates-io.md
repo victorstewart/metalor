@@ -75,8 +75,11 @@ The advanced Linux runtime API is intentionally split:
 
 1. `prepare_oci_rootfs(...)` copies or unpacks a rootfs under a declared runtime prefix.
 2. `prepare_runtime_emulator(...)` stages `qemu-*-static` under `/.metalor-run` when host and guest architectures differ.
-3. `build_unshare_reexec_command(...)` constructs the outer `unshare` re-exec.
-4. Your private/internal subcommand reconstructs the request and calls `run_isolated_container_command(...)`.
+3. `probe_rootless_userns(...)` can check whether the requested rootless user-namespace shape is available.
+4. `build_unshare_reexec_command_with_backend(...)` constructs the outer `unshare` re-exec for either rootless-user or privileged namespaces.
+5. Your private/internal subcommand reconstructs the request and calls `run_isolated_container_command(...)`.
+
+`build_unshare_reexec_command(...)` remains available as a privileged compatibility wrapper.
 
 The executed process gets a cleared environment. Pass `PATH` and any other required variables explicitly in `ContainerRunCommand::env`.
 
